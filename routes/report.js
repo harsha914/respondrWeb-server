@@ -1,9 +1,12 @@
+// routes/report.js
 const express = require('express');
 const router = express.Router();
 const { check, validationResult } = require('express-validator');
 const authenticate = require('../middleware/auth');
-const sql = require('mssql');
+const { sql, poolPromise } = require('../config/database'); // ✅ Use poolPromise
 const { BlobServiceClient } = require('@azure/storage-blob');
+
+console.log('reportRouter loaded');
 
 // Azure Blob setup
 const blobServiceClient = BlobServiceClient.fromConnectionString(
@@ -71,9 +74,10 @@ router.post(
         return res.status(400).json({ error: 'Destination required for Booking' });
       }
 
-      // Insert into MSSQL
-      const pool = await sql.connect();
+      // ✅ Use poolPromise instead of sql.connect()
+      const pool = await poolPromise;
       const request = pool.request();
+
       request.input('user_id', sql.Int, req.user.user_id);
       request.input('type', sql.VarChar(50), type);
       request.input('latitude', sql.Float, latitude);

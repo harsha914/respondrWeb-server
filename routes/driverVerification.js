@@ -1,31 +1,46 @@
-const express = require('express');
-const { sql, poolPromise } = require('../config/database'); // Use poolPromise for mssql
-const { BlobServiceClient } = require('@azure/storage-blob');
-require('dotenv').config();
+import express from 'express';
+import { sql, poolPromise } from '../config/database';
+import { BlobServiceClient, generateBlobSASQueryParameters, ContainerSASPermissions, SASProtocol } from '@azure/storage-blob';
+import crypto from 'crypto';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const router = express.Router();
 console.log('driverVerificationRouter loaded');
 
 // Azure Blob setup
 const blobServiceClient = BlobServiceClient.fromConnectionString(
-  process.env.AZURE_STORAGE_CONNECTION_STRING
+  process.env.AZURE_STORAGE_CONNECTION_STRING!
 );
 const containerName = process.env.AZURE_BLOB_CONTAINER || 'uploads';
 
-// Helper: Upload file to Azure Blob
-const uploadToAzure = async (file) => {
+// Helper: Upload file to Azure Blob privately and return SAS URL
+const uploadToAzure = async (file: any) => {
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
-    await containerClient.createIfNotExists({ access: 'container' }); // Public read access
+    await containerClient.createIfNotExists({}); // Private container
 
-    const blobName = `${Date.now()}-${file.name}`;
+    const blobName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${file.name}`;
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
+    // Upload file
     await blockBlobClient.uploadData(file.data, {
       blobHTTPHeaders: { blobContentType: file.mimetype },
     });
 
-    return blockBlobClient.url; // Return public URL
+    // Generate SAS URL valid for 1 hour
+    const sasToken = generateBlobSASQueryParameters(
+      {
+        containerName,
+        blobName,
+        permissions: ContainerSASPermissions.parse("r"), // read-only
+        expiresOn: new Date(new Date().valueOf() + 3600 * 1000), // 1 hour
+        protocol: SASProtocol.Https,
+      },
+      blobServiceClient.credential!
+    ).toString();
+
+    return `${blockBlobClient.url}?${sasToken}`;
   } catch (err) {
     console.error('Azure Blob upload error:', err);
     throw new Error('Failed to upload file to Azure Blob');
@@ -44,25 +59,21 @@ router.post('/submit', async (req, res) => {
   try {
     const { licenseNumber, ambulanceRegistration, address, driverId, userId } = req.body;
 
-    // Validate inputs
     if (!licenseNumber || !ambulanceRegistration || !address || (!driverId && !userId)) {
-      return res.status(400).json({ error: 'Missing required fields: licenseNumber, ambulanceRegistration, address, and either driverId or userId are required' });
+      return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Validate files
     if (!req.files || !req.files.idProof || !req.files.license) {
-      return res.status(400).json({ error: 'Missing required files: idProof and license are required' });
+      return res.status(400).json({ error: 'Missing required files: idProof and license' });
     }
 
     const idProof = req.files.idProof;
     const license = req.files.license;
 
-    // Validate file types
     if (!idProof.mimetype.includes('jpeg') || !license.mimetype.includes('jpeg')) {
       return res.status(400).json({ error: 'Only JPG files are allowed' });
     }
 
-    // Validate file size (5MB)
     if (idProof.size > 5 * 1024 * 1024 || license.size > 5 * 1024 * 1024) {
       return res.status(400).json({ error: 'Files must be smaller than 5MB' });
     }
@@ -74,6 +85,7 @@ router.post('/submit', async (req, res) => {
       const driverResult = await pool.request()
         .input('userId', sql.Int, userId)
         .query('SELECT driver_id FROM drivers WHERE user_id = @userId');
+
       if (driverResult.recordset.length === 0) {
         return res.status(400).json({ error: 'No driver profile found for the provided userId' });
       }
@@ -84,7 +96,7 @@ router.post('/submit', async (req, res) => {
       return res.status(400).json({ error: 'Invalid driverId or userId' });
     }
 
-    // Upload files to Azure Blob
+    // Upload files to Azure Blob (private)
     const idProofUrl = await uploadToAzure(idProof);
     const licenseUrl = await uploadToAzure(license);
 
@@ -102,7 +114,7 @@ router.post('/submit', async (req, res) => {
       const existingResult = await transaction.request()
         .input('driverId', sql.Int, resolvedDriverId)
         .query('SELECT verification_id FROM verifications WHERE driver_id = @driverId');
-      
+
       if (existingResult.recordset.length > 0) {
         await transaction.request()
           .input('idProofUrl', sql.VarChar, idProofUrl)
@@ -141,4 +153,4 @@ router.post('/submit', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

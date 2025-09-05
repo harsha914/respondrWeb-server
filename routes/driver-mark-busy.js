@@ -1,8 +1,9 @@
 // routes/markBusy.js
 const express = require('express');
-const sql = require('mssql');
 const router = express.Router();
-const poolPromise = require('../config/database'); // Azure SQL pool
+const { sql, poolPromise } = require('../config/database'); // ✅ Correct import
+
+console.log('markBusyRouter loaded');
 
 /**
  * @route POST /api/mark-busy
@@ -17,7 +18,7 @@ router.post('/mark-busy', async (req, res) => {
   }
 
   try {
-    const pool = await poolPromise;
+    const pool = await poolPromise; // ✅ Use poolPromise
     const transaction = new sql.Transaction(pool);
 
     await transaction.begin();

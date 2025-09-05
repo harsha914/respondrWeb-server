@@ -1,8 +1,9 @@
 // routes/driver-dispatch.js
 const express = require('express');
-const sql = require('mssql');
 const router = express.Router();
-const poolPromise = require('../config/database'); // Azure SQL pool
+const { sql, poolPromise } = require('../config/database'); // ✅ Correct import
+
+console.log('driverDispatchRouter loaded');
 
 /**
  * @route POST /api/dispatch
@@ -13,14 +14,14 @@ router.post('/dispatch', async (req, res) => {
   try {
     const { userId, reportId, assignmentId, dispatchTime, action, arrivalTime, completionTime } = req.body;
 
-    const pool = await poolPromise;
+    const pool = await poolPromise; // ✅ Use poolPromise for Azure SQL
 
     if (action === 'dispatch') {
       if (!userId || !reportId || !assignmentId || !dispatchTime) {
         return res.status(400).json({ error: 'Missing userId, reportId, assignmentId, or dispatchTime' });
       }
 
-      // 🔹 Fetch driver_id
+      // Fetch driver_id
       const driverResult = await pool.request()
         .input('userId', sql.Int, userId)
         .query('SELECT driver_id FROM drivers WHERE user_id = @userId');
@@ -30,7 +31,7 @@ router.post('/dispatch', async (req, res) => {
       }
       const driverId = driverResult.recordset[0].driver_id;
 
-      // 🔹 Fetch ambulance_id
+      // Fetch ambulance_id
       const ambulanceResult = await pool.request()
         .input('driverId', sql.Int, driverId)
         .query('SELECT ambulance_id FROM ambulances WHERE driver_id = @driverId');
@@ -40,13 +41,13 @@ router.post('/dispatch', async (req, res) => {
       }
       const ambulanceId = ambulanceResult.recordset[0].ambulance_id;
 
-      // 🔹 Insert into dispatch_records
+      // Insert into dispatch_records
       const insertResult = await pool.request()
         .input('ambulanceId', sql.Int, ambulanceId)
         .input('reportId', sql.Int, reportId)
         .input('assignmentId', sql.Int, assignmentId)
         .input('dispatchTime', sql.DateTime, new Date(dispatchTime))
-        .input('status', sql.VarChar, 'Dispatched')
+        .input('status', sql.VarChar(50), 'Dispatched')
         .query(`
           INSERT INTO dispatch_records (ambulance_id, report_id, assignment_id, dispatch_time, dispatch_status)
           OUTPUT INSERTED.dispatch_id
@@ -60,12 +61,12 @@ router.post('/dispatch', async (req, res) => {
         return res.status(400).json({ error: 'Missing reportId, arrivalTime, or completionTime' });
       }
 
-      // 🔹 Update dispatch_records
+      // Update dispatch_records
       await pool.request()
         .input('reportId', sql.Int, reportId)
         .input('arrivalTime', sql.DateTime, new Date(arrivalTime))
         .input('completionTime', sql.DateTime, new Date(completionTime))
-        .input('status', sql.VarChar, 'Completed')
+        .input('status', sql.VarChar(50), 'Completed')
         .query(`
           UPDATE dispatch_records
           SET arrival_time = @arrivalTime,

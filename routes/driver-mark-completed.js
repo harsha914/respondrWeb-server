@@ -1,8 +1,9 @@
 // routes/driver-mark-completed.js
 const express = require('express');
-const sql = require('mssql');
 const router = express.Router();
-const poolPromise = require('../config/database'); // Azure SQL pool
+const { sql, poolPromise } = require('../config/database'); // ✅ Correct import
+
+console.log('driverMarkCompletedRouter loaded');
 
 /**
  * @route POST /api/mark-completed
@@ -17,7 +18,7 @@ router.post('/mark-completed', async (req, res) => {
       return res.status(400).json({ error: 'Missing userId or emergencyId' });
     }
 
-    const pool = await poolPromise;
+    const pool = await poolPromise; // ✅ Use poolPromise
     const transaction = new sql.Transaction(pool);
 
     await transaction.begin();

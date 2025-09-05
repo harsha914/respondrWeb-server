@@ -1,7 +1,9 @@
 // routes/driver-assign-report.js
 const express = require('express');
-const sql = require('mssql');
 const router = express.Router();
+const { sql, poolPromise } = require('../config/database'); // Use poolPromise
+
+console.log('driverAssignReportRouter loaded');
 
 // Assign report to driver
 router.post('/assign-report', async (req, res) => {
@@ -13,7 +15,7 @@ router.post('/assign-report', async (req, res) => {
     }
 
     // Get DB connection pool
-    const pool = await sql.connect();
+    const pool = await poolPromise; // Use poolPromise
 
     // Fetch driver_id from drivers table using user_id
     const driverResult = await pool.request()
@@ -29,7 +31,7 @@ router.post('/assign-report', async (req, res) => {
     const insertResult = await pool.request()
       .input('reportId', sql.BigInt, reportId)
       .input('driverId', sql.BigInt, driverId)
-      .input('status', sql.VarChar, 'Accepted')
+      .input('status', sql.VarChar(50), 'Accepted')
       .input('responseTime', sql.DateTime, new Date(responseTime))
       .query(`
         INSERT INTO report_assignments (report_id, driver_id, status, response_time)

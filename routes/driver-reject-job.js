@@ -1,8 +1,9 @@
 // routes/driver-reject-job.js
 const express = require('express');
-const sql = require('mssql');
 const router = express.Router();
-const poolPromise = require('../config/database'); // Azure SQL connection
+const { sql, poolPromise } = require('../config/database'); // ✅ Use poolPromise
+
+console.log('driverRejectJobRouter loaded');
 
 /**
  * @route POST /api/driver/reject-job
@@ -17,7 +18,7 @@ router.post('/reject-job', async (req, res) => {
   }
 
   try {
-    const pool = await poolPromise;
+    const pool = await poolPromise; // ✅ Get Azure SQL pool
     const request = pool.request();
 
     request.input('emergencyId', sql.Int, emergencyId);
@@ -32,7 +33,7 @@ router.post('/reject-job', async (req, res) => {
       return res.status(404).json({ error: 'Report not found or already updated' });
     }
 
-    res.status(200).json({ message: 'Job rejected successfully' });
+    res.status(200).json({ message: 'Job rejected successfully', success: true });
   } catch (error) {
     console.error('Error rejecting job:', error);
     res.status(500).json({ error: 'Internal server error', details: error.message });

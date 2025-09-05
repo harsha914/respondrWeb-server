@@ -1,15 +1,18 @@
+// routes/adminVerification.js
 const express = require('express');
-const sql = require('mssql'); // MSSQL for Azure
+const { sql, poolPromise } = require('../config/database'); // Use the poolPromise
 const router = express.Router();
 
+console.log('adminVerificationsRouter loaded');
+
 /**
- * @route GET /api/admin/requests
+ * @route GET /api/admin-verification/requests
  * @desc Fetch all driver verification requests
  * @access Admin
  */
 router.get('/requests', async (req, res) => {
   try {
-    const pool = await sql.connect();
+    const pool = await poolPromise; // Use the pre-configured pool
     const result = await pool.request().query(`
       SELECT 
         v.verification_id AS id,
@@ -37,7 +40,7 @@ router.get('/requests', async (req, res) => {
 });
 
 /**
- * @route PUT /api/admin/approve/:id
+ * @route PUT /api/admin-verification/approve/:id
  * @desc Approve a driver verification request
  * @access Admin
  */
@@ -46,7 +49,7 @@ router.put('/approve/:id', async (req, res) => {
   const { reviewed_by } = req.body;
 
   try {
-    const pool = await sql.connect();
+    const pool = await poolPromise; // Use the pre-configured pool
     const request = pool.request();
     request.input('id', sql.Int, id);
     request.input('reviewed_by', sql.NVarChar, reviewed_by);
@@ -69,7 +72,7 @@ router.put('/approve/:id', async (req, res) => {
 });
 
 /**
- * @route PUT /api/admin/reject/:id
+ * @route PUT /api/admin-verification/reject/:id
  * @desc Reject a driver verification request
  * @access Admin
  */
@@ -78,7 +81,7 @@ router.put('/reject/:id', async (req, res) => {
   const { reviewed_by, remarks } = req.body;
 
   try {
-    const pool = await sql.connect();
+    const pool = await poolPromise; // Use the pre-configured pool
     const request = pool.request();
     request.input('id', sql.Int, id);
     request.input('reviewed_by', sql.NVarChar, reviewed_by);

@@ -1,8 +1,9 @@
 // routes/driver-offline.js
 const express = require('express');
-const sql = require('mssql');
 const router = express.Router();
-const poolPromise = require('../config/database'); // Azure SQL pool
+const { sql, poolPromise } = require('../config/database'); // ✅ Correct import
+
+console.log('driverOfflineRouter loaded');
 
 /**
  * @route POST /api/driver/go-offline
@@ -17,7 +18,7 @@ router.post('/go-offline', async (req, res) => {
   }
 
   try {
-    const pool = await poolPromise;
+    const pool = await poolPromise; // ✅ Use poolPromise
     const request = pool.request();
 
     request.input('userId', sql.Int, userId);

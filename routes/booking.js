@@ -1,8 +1,11 @@
+// routes/booking.js
 const express = require('express');
 const router = express.Router();
 const { check, validationResult } = require('express-validator');
 const authenticate = require('../middleware/auth');
-const sql = require('mssql'); // Using MSSQL
+const { sql, poolPromise } = require('../config/database'); // Use poolPromise
+
+console.log('bookingRouter loaded');
 
 // Create a new ambulance booking
 router.post(
@@ -36,7 +39,6 @@ router.post(
     } = req.body;
 
     try {
-      // Combine patient details into JSON
       const description = JSON.stringify({
         patientName,
         contactNumber,
@@ -44,7 +46,7 @@ router.post(
         additionalInfo: additionalInfo || null,
       });
 
-      const pool = await sql.connect();
+      const pool = await poolPromise; // Use poolPromise
       const request = pool.request();
       request.input('user_id', sql.Int, req.user.user_id);
       request.input('type', sql.VarChar(50), type);
@@ -55,7 +57,6 @@ router.post(
       request.input('destination', sql.VarChar(sql.MAX), destination);
       request.input('status', sql.VarChar(50), 'Pending');
 
-      // Insert booking and return new report ID
       const result = await request.query(`
         INSERT INTO reports (user_id, type, latitude, longitude, photo_url, description, destination, status)
         OUTPUT INSERTED.report_id
@@ -80,7 +81,7 @@ router.get('/status/:reportId', authenticate('Public'), async (req, res) => {
   try {
     const { reportId } = req.params;
 
-    const pool = await sql.connect();
+    const pool = await poolPromise; // Use poolPromise
     const request = pool.request();
     request.input('report_id', sql.Int, reportId);
     request.input('user_id', sql.Int, req.user.user_id);
@@ -105,12 +106,11 @@ router.post('/cancel/:reportId', authenticate('Public'), async (req, res) => {
   try {
     const { reportId } = req.params;
 
-    const pool = await sql.connect();
+    const pool = await poolPromise; // Use poolPromise
     const request = pool.request();
     request.input('report_id', sql.Int, reportId);
     request.input('user_id', sql.Int, req.user.user_id);
 
-    // Check if booking exists
     const checkResult = await request.query(`
       SELECT status FROM reports WHERE report_id = @report_id AND user_id = @user_id
     `);
@@ -125,7 +125,6 @@ router.post('/cancel/:reportId', authenticate('Public'), async (req, res) => {
       return res.status(400).json({ error: 'Cannot cancel a booking that is not pending' });
     }
 
-    // Cancel the booking
     const cancelRequest = pool.request();
     cancelRequest.input('status', sql.VarChar(50), 'Cancelled');
     cancelRequest.input('report_id', sql.Int, reportId);
