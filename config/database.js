@@ -7,11 +7,12 @@ const config = {
   server: process.env.DB_HOST, // e.g., myserver.database.windows.net
   database: process.env.DB_NAME,
   options: {
-    encrypt: true, // Required for Azure
+    encrypt: true, // Required for Azure SQL
     enableArithAbort: true,
+    trustServerCertificate: false, // Use false for production with Azure; true only for local testing
   },
   pool: {
-    max: 10,
+    max: 10, // Adjust based on load
     min: 0,
     idleTimeoutMillis: 30000,
   },
@@ -25,10 +26,7 @@ const poolPromise = new sql.ConnectionPool(config)
   })
   .catch((err) => {
     console.error('Database Connection Failed!', err);
-    process.exit(1);
+    throw err; // Re-throw to handle in the calling code
   });
 
-module.exports = {
-  sql,
-  poolPromise,
-};
+module.exports = { sql, poolPromise };
