@@ -15,7 +15,7 @@ const blobServiceClient = BlobServiceClient.fromConnectionString(
 const containerName = process.env.AZURE_BLOB_CONTAINER || 'uploads';
 
 // Helper: Upload file to Azure Blob privately and return SAS URL
-const uploadToAzure = async (file: any) => {
+const uploadToAzure = async (file) => {
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
     await containerClient.createIfNotExists({}); // Private container
@@ -37,7 +37,7 @@ const uploadToAzure = async (file: any) => {
         expiresOn: new Date(new Date().valueOf() + 3600 * 1000), // 1 hour
         protocol: SASProtocol.Https,
       },
-      blobServiceClient.credential!
+      blobServiceClient.credential
     ).toString();
 
     return `${blockBlobClient.url}?${sasToken}`;
@@ -102,7 +102,10 @@ router.post('/submit', async (req, res) => {
 
     // Start transaction
     const pool = await poolPromise;
-    await pool.transaction(async (transaction) => {
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    try {
       // Update users table
       await transaction.request()
         .input('address', sql.VarChar, address)
@@ -143,10 +146,15 @@ router.post('/submit', async (req, res) => {
         .input('driverId', sql.Int, resolvedDriverId)
         .query('UPDATE drivers SET license_number = @licenseNumber WHERE driver_id = @driverId');
 
+      await transaction.commit();
       console.log(`Verification submitted successfully for driverId: ${resolvedDriverId}`);
-    });
+      res.status(200).json({ message: 'Verification submitted successfully', status: 'Pending' });
 
-    res.status(200).json({ message: 'Verification submitted successfully', status: 'Pending' });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+
   } catch (error) {
     console.error('Error submitting verification:', error);
     res.status(500).json({ error: 'Server error', message: error.message });
