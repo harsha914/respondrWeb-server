@@ -52,4 +52,4 @@ jobs:
           app-name: 'respondrWeb-server'
           slot-name: 'Production'
           package: .
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_EA84BE2065594F42A64ED22D544A2002 }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_2A20207A0991458CB72AA663A9EB3CC1 }}
