@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { check, validationResult } = require('express-validator');
 const authenticate = require('../middleware/auth');
-const { sql, poolPromise } = require('../config/database'); // ✅ Use poolPromise
+const { sql, poolPromise } = require('../config/database');
 const { BlobServiceClient } = require('@azure/storage-blob');
 
 console.log('reportRouter loaded');
@@ -18,7 +18,9 @@ const containerName = process.env.AZURE_BLOB_CONTAINER || 'uploads';
 const uploadToAzure = async (file) => {
   try {
     const containerClient = blobServiceClient.getContainerClient(containerName);
-    await containerClient.createIfNotExists({ access: 'container' }); // Public read access
+
+    // ✅ Don't force public access (fixes 409 PublicAccessNotPermitted)
+    await containerClient.createIfNotExists();
 
     const blobName = `${Date.now()}-${file.name}`;
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
@@ -27,7 +29,7 @@ const uploadToAzure = async (file) => {
       blobHTTPHeaders: { blobContentType: file.mimetype },
     });
 
-    return blockBlobClient.url; // Return the public URL
+    return blockBlobClient.url; // may not be public if storage is private
   } catch (err) {
     console.error('Azure Blob upload error:', err);
     throw new Error('Failed to upload file to Azure Blob');
@@ -74,7 +76,7 @@ router.post(
         return res.status(400).json({ error: 'Destination required for Booking' });
       }
 
-      // ✅ Use poolPromise instead of sql.connect()
+      // ✅ Use poolPromise
       const pool = await poolPromise;
       const request = pool.request();
 
