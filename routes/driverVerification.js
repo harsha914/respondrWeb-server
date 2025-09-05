@@ -1,6 +1,5 @@
-// routes/driverVerification.js
 const express = require('express');
-const pool = require('../config/database');
+const { sql, poolPromise } = require('../config/database'); // Use poolPromise for mssql
 const { BlobServiceClient } = require('@azure/storage-blob');
 require('dotenv').config();
 
@@ -71,19 +70,14 @@ router.post('/submit', async (req, res) => {
     // Resolve driver_id if only user_id is provided
     let resolvedDriverId = driverId;
     if (!resolvedDriverId && userId) {
-      const connection = await pool.getConnection();
-      try {
-        const [rows] = await connection.query(
-          'SELECT driver_id FROM drivers WHERE user_id = ?',
-          [userId]
-        );
-        if (rows.length === 0) {
-          return res.status(400).json({ error: 'No driver profile found for the provided userId' });
-        }
-        resolvedDriverId = rows[0].driver_id;
-      } finally {
-        connection.release();
+      const pool = await poolPromise;
+      const driverResult = await pool.request()
+        .input('userId', sql.Int, userId)
+        .query('SELECT driver_id FROM drivers WHERE user_id = @userId');
+      if (driverResult.recordset.length === 0) {
+        return res.status(400).json({ error: 'No driver profile found for the provided userId' });
       }
+      resolvedDriverId = driverResult.recordset[0].driver_id;
     }
 
     if (!resolvedDriverId) {
@@ -95,57 +89,52 @@ router.post('/submit', async (req, res) => {
     const licenseUrl = await uploadToAzure(license);
 
     // Start transaction
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
-
-    try {
+    const pool = await poolPromise;
+    await pool.transaction(async (transaction) => {
       // Update users table
-      await connection.query(
-        'UPDATE users SET address = ?, proof_uploaded = 1 WHERE user_id = ? AND role = ?',
-        [address, userId, 'Driver']
-      );
+      await transaction.request()
+        .input('address', sql.VarChar, address)
+        .input('userId', sql.Int, userId)
+        .input('role', sql.VarChar, 'Driver')
+        .query('UPDATE users SET address = @address, proof_uploaded = 1 WHERE user_id = @userId AND role = @role');
 
       // Insert or update verifications table
-      const [existingVerifications] = await connection.query(
-        'SELECT verification_id FROM verifications WHERE driver_id = ?',
-        [resolvedDriverId]
-      );
-
-      if (existingVerifications.length > 0) {
-        await connection.query(
-          'UPDATE verifications SET id_proof = ?, drivers_license = ?, status = ?, created_at = NOW() WHERE driver_id = ?',
-          [idProofUrl, licenseUrl, 'Pending', resolvedDriverId]
-        );
+      const existingResult = await transaction.request()
+        .input('driverId', sql.Int, resolvedDriverId)
+        .query('SELECT verification_id FROM verifications WHERE driver_id = @driverId');
+      
+      if (existingResult.recordset.length > 0) {
+        await transaction.request()
+          .input('idProofUrl', sql.VarChar, idProofUrl)
+          .input('licenseUrl', sql.VarChar, licenseUrl)
+          .input('status', sql.VarChar, 'Pending')
+          .input('driverId', sql.Int, resolvedDriverId)
+          .query('UPDATE verifications SET id_proof = @idProofUrl, drivers_license = @licenseUrl, status = @status, created_at = GETDATE() WHERE driver_id = @driverId');
       } else {
-        await connection.query(
-          'INSERT INTO verifications (driver_id, id_proof, drivers_license, status, created_at) VALUES (?, ?, ?, ?, NOW())',
-          [resolvedDriverId, idProofUrl, licenseUrl, 'Pending']
-        );
+        await transaction.request()
+          .input('driverId', sql.Int, resolvedDriverId)
+          .input('idProofUrl', sql.VarChar, idProofUrl)
+          .input('licenseUrl', sql.VarChar, licenseUrl)
+          .input('status', sql.VarChar, 'Pending')
+          .query('INSERT INTO verifications (driver_id, id_proof, drivers_license, status, created_at) VALUES (@driverId, @idProofUrl, @licenseUrl, @status, GETDATE())');
       }
 
       // Insert or update ambulances table
-      await connection.query(
-        'INSERT INTO ambulances (vehicle_number, driver_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE vehicle_number = ?',
-        [ambulanceRegistration, resolvedDriverId, ambulanceRegistration]
-      );
+      await transaction.request()
+        .input('vehicleNumber', sql.VarChar, ambulanceRegistration)
+        .input('driverId', sql.Int, resolvedDriverId)
+        .query('MERGE ambulances WITH (HOLDLOCK) AS target USING (VALUES (@driverId)) AS source (driver_id) ON (target.driver_id = source.driver_id) WHEN MATCHED THEN UPDATE SET vehicle_number = @vehicleNumber WHEN NOT MATCHED THEN INSERT (vehicle_number, driver_id) VALUES (@vehicleNumber, @driverId);');
 
       // Update drivers table
-      await connection.query(
-        'UPDATE drivers SET license_number = ? WHERE driver_id = ?',
-        [licenseNumber, resolvedDriverId]
-      );
+      await transaction.request()
+        .input('licenseNumber', sql.VarChar, licenseNumber)
+        .input('driverId', sql.Int, resolvedDriverId)
+        .query('UPDATE drivers SET license_number = @licenseNumber WHERE driver_id = @driverId');
 
-      await connection.commit();
       console.log(`Verification submitted successfully for driverId: ${resolvedDriverId}`);
-      res.status(200).json({ message: 'Verification submitted successfully', status: 'Pending' });
-    } catch (error) {
-      await connection.rollback();
-      console.error('Transaction error:', error);
-      throw error;
-    } finally {
-      connection.release();
-    }
+    });
 
+    res.status(200).json({ message: 'Verification submitted successfully', status: 'Pending' });
   } catch (error) {
     console.error('Error submitting verification:', error);
     res.status(500).json({ error: 'Server error', message: error.message });

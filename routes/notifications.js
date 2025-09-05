@@ -1,5 +1,5 @@
 const express = require('express');
-const pool = require('../config/database');
+const { sql, poolPromise } = require('../config/database'); // Use poolPromise for mssql
 const router = express.Router();
 
 // Mock system notifications
@@ -24,57 +24,61 @@ const mockSystemNotifications = [
 
 router.get('/notifications', async (req, res) => {
   try {
-    const connection = await pool.getConnection();
+    const pool = await poolPromise;
 
     // Fetch SOS reports
-    const [reports] = await connection.query(`
-      SELECT 
-        r.report_id AS id,
-        'emergency' AS type,
-        CASE 
-          WHEN r.status = 'Pending' THEN 'new'
-          WHEN r.status IN ('Assigned', 'In_Progress') THEN 'accepted'
-          WHEN r.status = 'Cancelled' THEN 'rejected'
-          ELSE r.status
-        END AS status,
-        r.report_time AS timestamp,
-        u.name AS sender_name,
-        u.phone_number AS sender_phone,
-        r.latitude,
-        r.longitude,
-        r.description,
-        r.photo_url
-      FROM reports r
-      JOIN users u ON r.user_id = u.user_id
-      WHERE r.type = 'SOS'
-      ORDER BY r.report_time DESC
-    `);
+    const emergencyResult = await pool.request()
+      .query(`
+        SELECT 
+          r.report_id AS id,
+          'emergency' AS type,
+          CASE 
+            WHEN r.status = 'Pending' THEN 'new'
+            WHEN r.status IN ('Assigned', 'In_Progress') THEN 'accepted'
+            WHEN r.status = 'Cancelled' THEN 'rejected'
+            ELSE r.status
+          END AS status,
+          r.report_time AS timestamp,
+          u.name AS sender_name,
+          u.phone_number AS sender_phone,
+          r.latitude,
+          r.longitude,
+          r.description,
+          r.photo_url
+        FROM reports r
+        JOIN users u ON r.user_id = u.user_id
+        WHERE r.type = 'SOS'
+        ORDER BY r.report_time DESC
+      `);
+
+    const reports = emergencyResult.recordset;
 
     // Fetch Booking reports
-    const [bookings] = await connection.query(`
-      SELECT 
-        r.report_id AS id,
-        'booking' AS type,
-        CASE 
-          WHEN r.status = 'Pending' THEN 'new'
-          WHEN r.status IN ('Assigned', 'In_Progress') THEN 'accepted'
-          WHEN r.status = 'Cancelled' THEN 'rejected'
-          ELSE r.status
-        END AS status,
-        r.report_time AS timestamp,
-        u.name AS sender_name,
-        u.phone_number AS sender_phone,
-        r.latitude,
-        r.longitude,
-        r.description,
-        r.destination
-      FROM reports r
-      JOIN users u ON r.user_id = u.user_id
-      WHERE r.type = 'Booking'
-      ORDER BY r.report_time DESC
-    `);
+    const bookingResult = await pool.request()
+      .query(`
+        SELECT 
+          r.report_id AS id,
+          'booking' AS type,
+          CASE 
+            WHEN r.status = 'Pending' THEN 'new'
+            WHEN r.status IN ('Assigned', 'In_Progress') THEN 'accepted'
+            WHEN r.status = 'Cancelled' THEN 'rejected'
+            ELSE r.status
+          END AS status,
+          r.report_time AS timestamp,
+          u.name AS sender_name,
+          u.phone_number AS sender_phone,
+          r.latitude,
+          r.longitude,
+          r.description,
+          r.destination
+        FROM reports r
+        JOIN users u ON r.user_id = u.user_id
+        WHERE r.type = 'Booking'
+        ORDER BY r.report_time DESC
+      `);
 
-    connection.release();
+    const bookings = bookingResult.recordset;
 
     // Format SOS emergency notifications
     const emergencyNotifications = reports.map(report => ({
@@ -98,7 +102,7 @@ router.get('/notifications', async (req, res) => {
     const bookingNotifications = bookings.map(booking => {
       let bookingDetails = {};
       try {
-        bookingDetails = JSON.parse(booking.description);
+        bookingDetails = JSON.parse(booking.description || '{}');
       } catch (err) {
         console.error(`Error parsing Booking description for report ${booking.id}:`, err.message);
       }

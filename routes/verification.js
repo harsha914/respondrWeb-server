@@ -1,5 +1,5 @@
 const express = require('express');
-const sql = require('mssql'); // Use MSSQL instead of MySQL pool
+const { sql, poolPromise } = require('../config/database'); // Use poolPromise from config
 const router = express.Router();
 
 /**
@@ -12,7 +12,7 @@ router.get('/driver-id/:userId', async (req, res) => {
   console.log(`Fetching driver_id for userId: ${userId}`);
 
   try {
-    const pool = await sql.connect();
+    const pool = await poolPromise;
     const request = pool.request();
     request.input('userId', sql.Int, userId);
 
@@ -41,7 +41,7 @@ router.get('/verification-status/:userId', async (req, res) => {
   console.log(`Fetching verification status for userId: ${userId}`);
 
   try {
-    const pool = await sql.connect();
+    const pool = await poolPromise;
 
     // 🔹 Step 1: Get driver_id
     const driverRequest = pool.request();

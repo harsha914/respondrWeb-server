@@ -1,9 +1,7 @@
-// routes/assignment.js
 const express = require('express');
-const sql = require('mssql');
+const { sql, poolPromise } = require('../config/database'); // Use poolPromise for mssql
 const router = express.Router();
 const authenticate = require('../middleware/auth');
-const poolPromise = require('../config/database');
 const { assignToNearestDriver } = require('../services/geospatial');
 
 /**
@@ -38,11 +36,8 @@ router.post('/assignment/:assignmentId', authenticate('Responder'), async (req, 
 
     // 2. Handle Accept Action
     if (action === 'accept') {
-      const transaction = new sql.Transaction(pool);
-
-      try {
-        await transaction.begin();
-        const request = new sql.Request(transaction);
+      await pool.transaction(async (transaction) => {
+        const request = transaction.request();
 
         // Mark assignment as Accepted
         await request
@@ -73,6 +68,7 @@ router.post('/assignment/:assignmentId', authenticate('Responder'), async (req, 
         await request
           .input('ambulanceId', sql.Int, ambulanceId)
           .input('assignmentId', sql.Int, assignmentId)
+          .input('reportId', sql.Int, report.report_id)
           .query(`
             INSERT INTO dispatch_records (ambulance_id, report_id, assignment_id, dispatch_status)
             VALUES (@ambulanceId, @reportId, @assignmentId, 'Dispatched')
@@ -80,15 +76,11 @@ router.post('/assignment/:assignmentId', authenticate('Responder'), async (req, 
 
         // Set driver status to Busy
         await request
+          .input('userId', sql.Int, req.user.userId)
           .query(`UPDATE drivers SET status = 'Busy' WHERE user_id = @userId`);
+      });
 
-        await transaction.commit();
-        return res.json({ message: 'Assignment accepted' });
-      } catch (err) {
-        await transaction.rollback();
-        console.error('Transaction error:', err);
-        return res.status(500).json({ error: 'Error accepting assignment' });
-      }
+      return res.json({ message: 'Assignment accepted' });
     }
 
     // 3. Handle Cancel Action
@@ -124,14 +116,13 @@ router.post('/assignment/:assignmentId', authenticate('Responder'), async (req, 
         longitude: report.longitude,
         type: report.type,
         photoUrl: report.photo_url,
-        description: report.description
+        description: report.description,
       });
 
       return res.json({ message: 'Assignment cancelled, reassigned' });
     }
 
     return res.status(400).json({ error: 'Invalid action' });
-
   } catch (error) {
     console.error('Error handling assignment:', error);
     res.status(500).json({ error: 'Server error', details: error.message });
