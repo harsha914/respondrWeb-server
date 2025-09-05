@@ -1,36 +1,37 @@
 const express = require('express');
-const pool = require('../config/database');
+const { sql, poolPromise } = require('../config/database'); // Import poolPromise for mssql
 const router = express.Router();
 
 router.get('/emergency-alerts', async (req, res) => {
   try {
-    const connection = await pool.getConnection();
+    const pool = await poolPromise;
+    
+    // Fetch emergency alerts from reports table using T-SQL
+    const result = await pool.request()
+      .query(`
+        SELECT 
+          r.report_id AS id,
+          'emergency' AS type,
+          CASE 
+            WHEN r.status = 'Pending' THEN 'new'
+            WHEN r.status IN ('Assigned', 'In_Progress') THEN 'accepted'
+            WHEN r.status = 'Cancelled' THEN 'rejected'
+            ELSE r.status
+          END AS status,
+          r.report_time AS timestamp,
+          u.name AS sender_name,
+          u.phone_number AS sender_phone,
+          r.latitude,
+          r.longitude,
+          r.description,
+          r.photo_url
+        FROM reports r
+        JOIN users u ON r.user_id = u.user_id
+        WHERE r.type = 'SOS'
+        ORDER BY r.report_time DESC
+      `);
 
-    // Fetch emergency alerts from reports table
-    const [reports] = await connection.query(`
-      SELECT 
-        r.report_id AS id,
-        'emergency' AS type,
-        CASE 
-          WHEN r.status = 'Pending' THEN 'new'
-          WHEN r.status IN ('Assigned', 'In_Progress') THEN 'accepted'
-          WHEN r.status = 'Cancelled' THEN 'rejected'
-          ELSE r.status
-        END AS status,
-        r.report_time AS timestamp,
-        u.name AS sender_name,
-        u.phone_number AS sender_phone,
-        r.latitude,
-        r.longitude,
-        r.description,
-        r.photo_url
-      FROM reports r
-      JOIN users u ON r.user_id = u.user_id
-      WHERE r.type = 'SOS'
-      ORDER BY r.report_time DESC
-    `);
-
-    connection.release();
+    const reports = result.recordset;
 
     // Map DB results
     const emergencyAlerts = reports.map(report => ({
