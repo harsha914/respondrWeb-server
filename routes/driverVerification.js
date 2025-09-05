@@ -10,7 +10,7 @@ console.log('driverVerificationRouter loaded');
 
 // Azure Blob setup
 const blobServiceClient = BlobServiceClient.fromConnectionString(
-  process.env.AZURE_STORAGE_CONNECTION_STRING!
+  process.env.AZURE_STORAGE_CONNECTION_STRING
 );
 const containerName = process.env.AZURE_BLOB_CONTAINER || 'uploads';
 
