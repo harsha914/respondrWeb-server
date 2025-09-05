@@ -1,17 +1,15 @@
-import express from 'express';
-import { sql, poolPromise } from '../config/database.js'; // <-- fixed path and ESM import
-import { BlobServiceClient, generateBlobSASQueryParameters, ContainerSASPermissions, SASProtocol } from '@azure/storage-blob';
-import crypto from 'crypto';
-import dotenv from 'dotenv';
+const express = require('express');
+const { sql, poolPromise } = require('../config/database'); // CommonJS import
+const { BlobServiceClient, generateBlobSASQueryParameters, ContainerSASPermissions, SASProtocol } = require('@azure/storage-blob');
+const crypto = require('crypto');
+const dotenv = require('dotenv');
 dotenv.config();
 
 const router = express.Router();
 console.log('driverVerificationRouter loaded');
 
 // Azure Blob setup
-const blobServiceClient = BlobServiceClient.fromConnectionString(
-  process.env.AZURE_STORAGE_CONNECTION_STRING
-);
+const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
 const containerName = process.env.AZURE_BLOB_CONTAINER || 'uploads';
 
 // Helper: Upload file to Azure Blob privately and return SAS URL
@@ -23,10 +21,12 @@ const uploadToAzure = async (file) => {
     const blobName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${file.name}`;
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
+    // Upload file
     await blockBlobClient.uploadData(file.data, {
       blobHTTPHeaders: { blobContentType: file.mimetype },
     });
 
+    // Generate SAS URL valid for 1 hour
     const sasToken = generateBlobSASQueryParameters(
       {
         containerName,
@@ -45,13 +45,13 @@ const uploadToAzure = async (file) => {
   }
 };
 
-// Middleware logging
+// Middleware for request logging
 router.use((req, res, next) => {
   console.log(`DriverVerification Route: ${req.method} ${req.path}`);
   next();
 });
 
-// Submit verification
+// Submit driver verification
 router.post('/submit', async (req, res) => {
   try {
     const { licenseNumber, ambulanceRegistration, address, driverId, userId } = req.body;
@@ -75,6 +75,7 @@ router.post('/submit', async (req, res) => {
       return res.status(400).json({ error: 'Files must be smaller than 5MB' });
     }
 
+    // Resolve driver_id if only user_id is provided
     let resolvedDriverId = driverId;
     if (!resolvedDriverId && userId) {
       const pool = await poolPromise;
@@ -92,20 +93,24 @@ router.post('/submit', async (req, res) => {
       return res.status(400).json({ error: 'Invalid driverId or userId' });
     }
 
+    // Upload files to Azure Blob
     const idProofUrl = await uploadToAzure(idProof);
     const licenseUrl = await uploadToAzure(license);
 
+    // Start transaction
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
     await transaction.begin();
 
     try {
+      // Update users table
       await transaction.request()
         .input('address', sql.VarChar, address)
         .input('userId', sql.Int, userId)
         .input('role', sql.VarChar, 'Driver')
         .query('UPDATE users SET address = @address, proof_uploaded = 1 WHERE user_id = @userId AND role = @role');
 
+      // Insert or update verifications table
       const existingResult = await transaction.request()
         .input('driverId', sql.Int, resolvedDriverId)
         .query('SELECT verification_id FROM verifications WHERE driver_id = @driverId');
@@ -126,18 +131,22 @@ router.post('/submit', async (req, res) => {
           .query('INSERT INTO verifications (driver_id, id_proof, drivers_license, status, created_at) VALUES (@driverId, @idProofUrl, @licenseUrl, @status, GETDATE())');
       }
 
+      // Insert or update ambulances table
       await transaction.request()
         .input('vehicleNumber', sql.VarChar, ambulanceRegistration)
         .input('driverId', sql.Int, resolvedDriverId)
         .query('MERGE ambulances WITH (HOLDLOCK) AS target USING (VALUES (@driverId)) AS source (driver_id) ON (target.driver_id = source.driver_id) WHEN MATCHED THEN UPDATE SET vehicle_number = @vehicleNumber WHEN NOT MATCHED THEN INSERT (vehicle_number, driver_id) VALUES (@vehicleNumber, @driverId);');
 
+      // Update drivers table
       await transaction.request()
         .input('licenseNumber', sql.VarChar, licenseNumber)
         .input('driverId', sql.Int, resolvedDriverId)
         .query('UPDATE drivers SET license_number = @licenseNumber WHERE driver_id = @driverId');
 
       await transaction.commit();
+      console.log(`Verification submitted successfully for driverId: ${resolvedDriverId}`);
       res.status(200).json({ message: 'Verification submitted successfully', status: 'Pending' });
+
     } catch (err) {
       await transaction.rollback();
       throw err;
@@ -149,4 +158,4 @@ router.post('/submit', async (req, res) => {
   }
 });
 
-export default router;
+module.exports = router;
