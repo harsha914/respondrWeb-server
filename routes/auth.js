@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
-const db = require('../config/database'); // Use a centralized pool connection
+const { sql, poolPromise } = require('../config/database'); // Import poolPromise for mssql
 
 // LOGIN route
 router.post('/login', async (req, res) => {
@@ -14,8 +14,11 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    const [rows] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
-    const user = rows[0];
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('email', sql.VarChar, email)
+      .query('SELECT * FROM users WHERE email = @email');
+    const user = result.recordset[0];
     console.log('User from DB:', user);
 
     if (!user) {
@@ -68,9 +71,11 @@ router.post('/signup', async (req, res) => {
       });
     }
 
-    // Check if email already exists
-    const [existing] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (existing.length > 0) {
+    const pool = await poolPromise;
+    const existingResult = await pool.request()
+      .input('email', sql.VarChar, email)
+      .query('SELECT * FROM users WHERE email = @email');
+    if (existingResult.recordset.length > 0) {
       return res.status(400).json({ message: 'Email already exists' });
     }
 
@@ -85,19 +90,26 @@ router.post('/signup', async (req, res) => {
     console.log('Hashed password created');
 
     // Insert user
-    const [userResult] = await db.query(
-      `INSERT INTO users (name, email, password_hash, role, phone_number, proof_uploaded) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, email, hashedPassword, role, phone_number, false]
-    );
-    const userId = userResult.insertId;
+    const userResult = await pool.request()
+      .input('name', sql.VarChar, name)
+      .input('email', sql.VarChar, email)
+      .input('password_hash', sql.VarChar, hashedPassword)
+      .input('role', sql.VarChar, role)
+      .input('phone_number', sql.VarChar, phone_number)
+      .input('proof_uploaded', sql.Bit, false)
+      .query(`
+        INSERT INTO users (name, email, password_hash, role, phone_number, proof_uploaded)
+        OUTPUT INSERTED.user_id
+        VALUES (@name, @email, @password_hash, @role, @phone_number, @proof_uploaded)
+      `);
+    const userId = userResult.recordset[0].user_id;
 
     // If role is Driver, insert into drivers table
     if (role === 'Driver') {
-      await db.query(
-        `INSERT INTO drivers (user_id, status) VALUES (?, ?)`,
-        [userId, 'Offline']
-      );
+      await pool.request()
+        .input('user_id', sql.Int, userId)
+        .input('status', sql.VarChar, 'Offline')
+        .query('INSERT INTO drivers (user_id, status) VALUES (@user_id, @status)');
       console.log(`Driver record created for user ${userId}`);
     }
 
