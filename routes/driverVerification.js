@@ -1,11 +1,12 @@
 import express from 'express';
-import { sql, poolPromise } from '../config/database';
+// import { sql, poolPromise } from '../config/database';
 import { BlobServiceClient, generateBlobSASQueryParameters, ContainerSASPermissions, SASProtocol } from '@azure/storage-blob';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const router = express.Router();
+const { sql, poolPromise } = require('../config/database'); // Use poolPromise from config
 console.log('driverVerificationRouter loaded');
 
 // Azure Blob setup
