@@ -45,7 +45,7 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { type, latitude, longitude, description, destination } = req.body;
-    let photoBlobName = null;
+    let photoUrl = null;
 
     try {
       if (type === 'SOS') {
@@ -63,7 +63,9 @@ router.post(
           return res.status(400).json({ error: 'File too large (max 5MB)' });
         }
 
-        photoBlobName = await uploadToAzure(photo);
+        const blobName = await uploadToAzure(photo);
+        const { generateSasUrl } = require('../utils/blob');
+        photoUrl = generateSasUrl(blobName); // store full SAS URL
       } else if (!destination) {
         return res.status(400).json({ error: 'Destination required for Booking' });
       }
@@ -75,7 +77,7 @@ router.post(
       request.input('type', sql.VarChar(50), type);
       request.input('latitude', sql.Float, latitude);
       request.input('longitude', sql.Float, longitude);
-      request.input('photo_url', sql.VarChar(sql.MAX), photoBlobName); // store blobName
+      request.input('photo_url', sql.VarChar(sql.MAX), photoUrl);
       request.input('description', sql.VarChar(sql.MAX), description || null);
       request.input('destination', sql.VarChar(sql.MAX), destination || null);
       request.input('status', sql.VarChar(50), 'Pending');
@@ -91,7 +93,7 @@ router.post(
       return res.status(201).json({
         message: 'Report created successfully',
         reportId,
-        photoBlobName,
+        photoUrl,
       });
     } catch (error) {
       console.error('Create report failed:', error);
@@ -99,5 +101,6 @@ router.post(
     }
   }
 );
+
 
 module.exports = router;

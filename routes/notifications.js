@@ -40,18 +40,19 @@ router.get('/notifications', async (req, res) => {
     `);
 
     const emergencyNotifications = emergencyResult.recordset.map(report => ({
-      id: `sos-${report.id}`,
-      type: 'emergency',
-      status: report.status,
-      timestamp: report.report_time,
-      sender: {
-        name: report.sender_name || 'Unknown',
-        location: { lat: parseFloat(report.latitude), lng: parseFloat(report.longitude) },
-        phone: report.sender_phone || 'N/A',
-      },
-      description: report.description || 'No description provided',
-      photoUrl: report.photo_url ? generateSasUrl(report.photo_url) : '/placeholder.svg',
-    }));
+    id: `sos-${report.id}`,
+    type: 'emergency',
+    status: report.status,
+    timestamp: report.report_time,
+    sender: {
+      name: report.sender_name || 'Unknown',
+      location: { lat: parseFloat(report.latitude), lng: parseFloat(report.longitude) },
+      phone: report.sender_phone || 'N/A',
+    },
+    description: report.description || 'No description provided',
+    photoUrl: report.photo_url || null, // No fallback
+  }));
+
 
     // Fetch Booking reports
     const bookingResult = await pool.request().query(`
