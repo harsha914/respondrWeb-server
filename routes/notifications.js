@@ -1,6 +1,5 @@
 const express = require('express');
 const { sql, poolPromise } = require('../config/database');
-const { generateSasUrl } = require('../utils/blob');
 const router = express.Router();
 
 console.log('notificationsRouter loaded');
@@ -25,11 +24,26 @@ const mockSystemNotifications = [
   },
 ];
 
+// 🔑 normalize DB status → frontend friendly
+const normalizeStatus = (dbStatus) => {
+  if (!dbStatus) return "new";
+  switch (dbStatus.toLowerCase()) {
+    case "pending": return "new";
+    case "assigned":
+    case "in_progress":
+    case "accepted": return "accepted";
+    case "completed": return "Completed";
+    case "cancelled":
+    case "rejected": return "rejected";
+    default: return "new";
+  }
+};
+
 router.get('/notifications', async (req, res) => {
   try {
     const pool = await poolPromise;
 
-    // Fetch SOS reports
+    // SOS reports
     const emergencyResult = await pool.request().query(`
       SELECT r.report_id AS id, r.status, r.report_time, u.name AS sender_name, 
              u.phone_number AS sender_phone, r.latitude, r.longitude, r.description, r.photo_url
@@ -40,21 +54,20 @@ router.get('/notifications', async (req, res) => {
     `);
 
     const emergencyNotifications = emergencyResult.recordset.map(report => ({
-    id: `sos-${report.id}`,
-    type: 'emergency',
-    status: report.status,
-    timestamp: report.report_time,
-    sender: {
-      name: report.sender_name || 'Unknown',
-      location: { lat: parseFloat(report.latitude), lng: parseFloat(report.longitude) },
-      phone: report.sender_phone || 'N/A',
-    },
-    description: report.description || 'No description provided',
-    photoUrl: report.photo_url || null, // No fallback
-  }));
+      id: `sos-${report.id}`,
+      type: 'emergency',
+      status: normalizeStatus(report.status),
+      timestamp: report.report_time,
+      sender: {
+        name: report.sender_name || 'Unknown',
+        location: { lat: parseFloat(report.latitude), lng: parseFloat(report.longitude) },
+        phone: report.sender_phone || 'N/A',
+      },
+      description: report.description || 'No description provided',
+      photoUrl: report.photo_url || null,
+    }));
 
-
-    // Fetch Booking reports
+    // Booking reports
     const bookingResult = await pool.request().query(`
       SELECT r.report_id AS id, r.status, r.report_time, u.name AS sender_name, 
              u.phone_number AS sender_phone, r.latitude, r.longitude, r.description, r.destination
@@ -67,7 +80,7 @@ router.get('/notifications', async (req, res) => {
     const bookingNotifications = bookingResult.recordset.map(booking => ({
       id: `booking-${booking.id}`,
       type: 'booking',
-      status: booking.status,
+      status: normalizeStatus(booking.status),
       timestamp: booking.report_time,
       sender: {
         name: booking.sender_name || 'Unknown',
