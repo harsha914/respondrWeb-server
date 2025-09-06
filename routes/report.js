@@ -2,7 +2,7 @@ const express = require('express');
 const { check, validationResult } = require('express-validator');
 const authenticate = require('../middleware/auth');
 const { sql, poolPromise } = require('../config/database');
-const { BlobServiceClient, generateBlobSASQueryParameters, ContainerSASPermissions, SASProtocol } = require('@azure/storage-blob');
+const { BlobServiceClient } = require('@azure/storage-blob');
 const crypto = require('crypto');
 const dotenv = require('dotenv');
 dotenv.config();
@@ -14,37 +14,19 @@ console.log('reportRouter loaded');
 const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
 const containerName = process.env.AZURE_BLOB_CONTAINER || 'uploads';
 
-// Helper: Upload + return SAS URL
+// Upload file and return blobName
 const uploadToAzure = async (file) => {
-  try {
-    const containerClient = blobServiceClient.getContainerClient(containerName);
-    await containerClient.createIfNotExists();
+  const containerClient = blobServiceClient.getContainerClient(containerName);
+  await containerClient.createIfNotExists();
 
-    const blobName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${file.name}`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  const blobName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${file.name}`;
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
-    // Upload
-    await blockBlobClient.uploadData(file.data, {
-      blobHTTPHeaders: { blobContentType: file.mimetype },
-    });
+  await blockBlobClient.uploadData(file.data, {
+    blobHTTPHeaders: { blobContentType: file.mimetype },
+  });
 
-    // SAS (1 hour)
-    const sasToken = generateBlobSASQueryParameters(
-      {
-        containerName,
-        blobName,
-        permissions: ContainerSASPermissions.parse("r"),
-        expiresOn: new Date(Date.now() + 3600 * 1000),
-        protocol: SASProtocol.Https,
-      },
-      blobServiceClient.credential
-    ).toString();
-
-    return `${blockBlobClient.url}?${sasToken}`;
-  } catch (err) {
-    console.error('Azure Blob upload error:', err);
-    throw new Error('Failed to upload file to Azure Blob');
-  }
+  return blobName; // store only blobName in DB
 };
 
 // Create report
@@ -63,7 +45,7 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { type, latitude, longitude, description, destination } = req.body;
-    let photoUrl = null;
+    let photoBlobName = null;
 
     try {
       if (type === 'SOS') {
@@ -81,7 +63,7 @@ router.post(
           return res.status(400).json({ error: 'File too large (max 5MB)' });
         }
 
-        photoUrl = await uploadToAzure(photo);
+        photoBlobName = await uploadToAzure(photo);
       } else if (!destination) {
         return res.status(400).json({ error: 'Destination required for Booking' });
       }
@@ -93,7 +75,7 @@ router.post(
       request.input('type', sql.VarChar(50), type);
       request.input('latitude', sql.Float, latitude);
       request.input('longitude', sql.Float, longitude);
-      request.input('photo_url', sql.VarChar(sql.MAX), photoUrl); // store SAS URL
+      request.input('photo_url', sql.VarChar(sql.MAX), photoBlobName); // store blobName
       request.input('description', sql.VarChar(sql.MAX), description || null);
       request.input('destination', sql.VarChar(sql.MAX), destination || null);
       request.input('status', sql.VarChar(50), 'Pending');
@@ -109,7 +91,7 @@ router.post(
       return res.status(201).json({
         message: 'Report created successfully',
         reportId,
-        photoUrl,
+        photoBlobName,
       });
     } catch (error) {
       console.error('Create report failed:', error);
