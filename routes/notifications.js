@@ -54,23 +54,20 @@ router.get('/notifications', async (req, res) => {
     `);
 
     const emergencyNotifications = emergencyResult.recordset.map(report => ({
-  id: report.id.toString(),
-  notificationId: `sos-${report.id}`,
-  type: 'emergency',
-  status: normalizeStatus(report.status),
-  timestamp: report.report_time,
-  sender: {
-    name: report.sender_name || 'Unknown',
-    location: { lat: parseFloat(report.latitude), lng: parseFloat(report.longitude) },
-    phone: report.sender_phone || 'N/A',
-  },
-  description: report.description || 'No description provided',
-  
-  // 🔑 Fix here: build full URL
-  photoUrl: report.photo_url 
-    ? `https://respondrwebuploads.blob.core.windows.net/uploads/${report.photo_url}`
-    : null,
-}));
+    id: report.id.toString(),
+    notificationId: `sos-${report.id}`,
+    type: 'emergency',
+    status: normalizeStatus(report.status),
+    timestamp: report.report_time,
+    sender: {
+      name: report.sender_name || 'Unknown',
+      location: { lat: parseFloat(report.latitude), lng: parseFloat(report.longitude) },
+      phone: report.sender_phone || 'N/A',
+    },
+    description: report.description || 'No description provided',
+    photoUrl: report.photo_url || null, // ✅ no rebuilding
+  }));
+
 
 
     // Booking reports

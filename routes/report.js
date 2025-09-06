@@ -13,6 +13,7 @@ console.log('reportRouter loaded');
 // Azure Blob setup
 const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
 const containerName = process.env.AZURE_BLOB_CONTAINER || 'uploads';
+const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
 
 // Upload file and return blobName
 const uploadToAzure = async (file) => {
@@ -26,7 +27,7 @@ const uploadToAzure = async (file) => {
     blobHTTPHeaders: { blobContentType: file.mimetype },
   });
 
-  return blobName; // store only blobName in DB
+  return blobName;
 };
 
 // Create report
@@ -64,8 +65,9 @@ router.post(
         }
 
         const blobName = await uploadToAzure(photo);
-        const { generateSasUrl } = require('../utils/blob');
-        photoUrl = generateSasUrl(blobName); // store full SAS URL
+
+        // 🔑 Public URL directly (no SAS)
+        photoUrl = `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}`;
       } else if (!destination) {
         return res.status(400).json({ error: 'Destination required for Booking' });
       }
@@ -101,6 +103,5 @@ router.post(
     }
   }
 );
-
 
 module.exports = router;
