@@ -43,7 +43,7 @@ router.post('/login', async (req, res) => {
     console.log('LOGIN RESPONSE PAYLOAD →', {
       userId: user.user_id,
       role: user.role,
-      driverId
+      driverId: drivers.driver_id,
     });
 
     res.json({ token, userId: user.user_id, role: user.role });
