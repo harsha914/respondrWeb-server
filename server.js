@@ -111,6 +111,9 @@
 //   process.exit(1);
 // });
 
+console.log('AZURE ENV PORT:', process.env.PORT);
+console.log('NODE ENV:', process.env.NODE_ENV);
+
 
 consloe.log('Starting server...');
 require('dotenv').config();
