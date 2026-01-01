@@ -58,7 +58,7 @@ const startServer = async () => {
   const dbReady = await testDbConnection();
   if (!dbReady) {
     console.error('Failed to start server due to DB connection issues');
-    process.exit(1);
+    // process.exit(1);
   }
 
   // Request logging
