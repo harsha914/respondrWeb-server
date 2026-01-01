@@ -35,10 +35,16 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { user_id: user.user_id, role: user.role, driverId: drivers.driver_id },
+      { user_id: user.user_id, role: user.role, driverId },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
+
+    console.log('LOGIN RESPONSE PAYLOAD →', {
+      userId: user.user_id,
+      role: user.role,
+      driverId
+    });
 
     res.json({ token, userId: user.user_id, role: user.role });
   } catch (err) {
