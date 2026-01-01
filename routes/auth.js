@@ -118,7 +118,7 @@ router.post('/signup', async (req, res) => {
       expiresIn: '1h',
     });
 
-    res.json({ token, userId, role });
+    res.json({ token, userId, role, driverId });
   } catch (err) {
     console.error('Signup error:', err);
     res.status(500).json({ message: 'Server error' });
