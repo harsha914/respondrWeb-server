@@ -7,6 +7,7 @@ const { sql, poolPromise } = require('../config/database'); // Import poolPromis
 // LOGIN route
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
+  console.log('Login request:', { email });
 
   try {
     if (!email || !password) {
@@ -14,31 +15,23 @@ router.post('/login', async (req, res) => {
     }
 
     const pool = await poolPromise;
-
-    const userResult = await pool.request()
+    const result = await pool.request()
       .input('email', sql.VarChar, email)
       .query('SELECT * FROM users WHERE email = @email');
+    const user = result.recordset[0];
+    console.log('User from DB:', user);
 
-    const user = userResult.recordset[0];
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password' });
+    }
+    if (!user.password_hash) {
+      console.error('No password stored for user:', email);
+      return res.status(500).json({ message: 'User account error' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid email or password' });
-    }
-
-    // Fetch driverId ONLY if role is Driver
-    let driverId = null;
-    if (user.role === 'Driver') {
-      const driverResult = await pool.request()
-        .input('userId', sql.Int, user.user_id)
-        .query('SELECT driver_id FROM drivers WHERE user_id = @userId');
-
-      if (driverResult.recordset.length > 0) {
-        driverId = driverResult.recordset[0].driver_id;
-      }
     }
 
     const token = jwt.sign(
@@ -47,19 +40,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: '1h' }
     );
 
-    console.log('LOGIN RESPONSE PAYLOAD →', {
-      userId: user.user_id,
-      role: user.role,
-      driverId,
-    });
-
-    res.json({
-      token,
-      userId: user.user_id,
-      role: user.role,
-      driverId,
-    });
-
+    res.json({ token, userId: user.user_id, role: user.role });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ message: 'Server error' });
